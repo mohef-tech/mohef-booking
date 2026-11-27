@@ -1,5 +1,6 @@
 # Docker local data
 .docker/postgres-data/
+docker-compose.yml
 
 # Dependencies
 node_modules/
@@ -15,7 +16,7 @@ coverage/
 # Environment variables
 .env
 .env.*
-!.env.example
+.env.example
 
 # Logs
 *.log
