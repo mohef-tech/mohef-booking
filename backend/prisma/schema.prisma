@@ -1,0 +1,212 @@
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum UnitType {
+  REGULER
+  VIP
+}
+
+enum DayCategory {
+  WEEKDAY
+  SUNDAY
+}
+
+enum BookingSource {
+  ONLINE
+  CHAT
+  WALK_IN
+}
+
+enum BookingStatus {
+  HOLD_DP
+  EXPIRED
+  CONFIRMED
+  PLAYING
+  COMPLETED
+  NO_SHOW
+  CANCELLED
+  CONFLICT_ADMIN
+}
+
+enum BookingPaymentStatus {
+  UNPAID
+  DP_PAID
+  PAID
+}
+
+enum PaymentProvider {
+  SIMULATOR
+  CASH
+}
+
+enum PaymentMethod {
+  QRIS
+  VA
+  CASH
+}
+
+enum PaymentType {
+  DP
+  SETTLEMENT
+  DIRECT_FULL
+  REFUND
+}
+
+enum PaymentTransactionStatus {
+  PENDING
+  VERIFIED
+  EXPIRED
+  REFUNDED
+}
+
+enum ActorRole {
+  CUSTOMER
+  CASHIER
+  ADMIN
+  SYSTEM
+}
+
+model Tenant {
+  id                       String          @id @default(uuid()) @db.Uuid
+  name                     String
+  slug                     String          @unique
+  bookingMode              String          @default("hourly_unit") @map("booking_mode")
+  openTime                 String          @default("10:00") @map("open_time")
+  closeTime                String          @default("23:00") @map("close_time")
+  dpHoldMinutes            Int             @default(10) @map("dp_hold_minutes")
+  gracePeriodMinutes       Int             @default(15) @map("grace_period_minutes")
+  maxGraceExtensionMinutes Int             @default(15) @map("max_grace_extension_minutes")
+  createdAt                DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+  units                    Unit[]
+  rateRules                RateRule[]
+  bookings                 Booking[]
+  payments                 Payment[]
+  bookingLogs              BookingLog[]
+  scheduleBlocks           ScheduleBlock[]
+
+  @@map("tenants")
+}
+
+model Unit {
+  id             String          @id @default(uuid()) @db.Uuid
+  tenantId       String          @map("tenant_id") @db.Uuid
+  code           String
+  name           String
+  type           UnitType
+  isActive       Boolean         @default(true) @map("is_active")
+  createdAt      DateTime        @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime        @updatedAt @map("updated_at") @db.Timestamptz
+  tenant         Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  bookings       Booking[]
+  scheduleBlocks ScheduleBlock[]
+
+  @@unique([tenantId, code])
+  @@index([tenantId, type, isActive])
+  @@map("units")
+}
+
+model RateRule {
+  id          String      @id @default(uuid()) @db.Uuid
+  tenantId    String      @map("tenant_id") @db.Uuid
+  unitType    UnitType    @map("unit_type")
+  dayCategory DayCategory @map("day_category")
+  hourlyRate  Int         @map("hourly_rate")
+  createdAt   DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt   DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+  tenant      Tenant      @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, unitType, dayCategory])
+  @@map("rate_rules")
+}
+
+model Booking {
+  id                       String               @id @default(uuid()) @db.Uuid
+  tenantId                 String               @map("tenant_id") @db.Uuid
+  unitId                   String               @map("unit_id") @db.Uuid
+  bookingCode              String               @unique @map("booking_code")
+  source                   BookingSource
+  customerName             String?              @map("customer_name")
+  customerWhatsapp         String?              @map("customer_whatsapp")
+  startAt                  DateTime             @map("start_at") @db.Timestamptz
+  endAt                    DateTime             @map("end_at") @db.Timestamptz
+  actualPlayStartAt        DateTime?            @map("actual_play_start_at") @db.Timestamptz
+  effectiveCheckinDeadline DateTime             @map("effective_checkin_deadline") @db.Timestamptz
+  graceExtendedCount       Int                  @default(0) @map("grace_extended_count")
+  rescheduleCount          Int                  @default(0) @map("reschedule_count")
+  status                   BookingStatus        @default(HOLD_DP)
+  totalAmount              Int                  @map("total_amount")
+  dpAmount                 Int                  @map("dp_amount")
+  paidAmount               Int                  @default(0) @map("paid_amount")
+  paymentStatus            BookingPaymentStatus @default(UNPAID) @map("payment_status")
+  createdAt                DateTime             @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt                DateTime             @updatedAt @map("updated_at") @db.Timestamptz
+  tenant                   Tenant               @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unit                     Unit                 @relation(fields: [unitId], references: [id], onDelete: Restrict)
+  payments                 Payment[]
+  logs                     BookingLog[]
+
+  @@index([tenantId, status, startAt])
+  @@index([tenantId, unitId, startAt])
+  @@index([status, effectiveCheckinDeadline])
+  @@map("bookings")
+}
+
+model Payment {
+  id         String                   @id @default(uuid()) @db.Uuid
+  tenantId   String                   @map("tenant_id") @db.Uuid
+  bookingId  String                   @map("booking_id") @db.Uuid
+  provider   PaymentProvider
+  method     PaymentMethod
+  type       PaymentType
+  amount     Int
+  status     PaymentTransactionStatus @default(PENDING)
+  expiresAt  DateTime?                @map("expires_at") @db.Timestamptz
+  verifiedAt DateTime?                @map("verified_at") @db.Timestamptz
+  createdAt  DateTime                 @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime                 @updatedAt @map("updated_at") @db.Timestamptz
+  tenant     Tenant                   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  booking    Booking                  @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, bookingId])
+  @@index([status, expiresAt])
+  @@map("payments")
+}
+
+model BookingLog {
+  id        String    @id @default(uuid()) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  bookingId String    @map("booking_id") @db.Uuid
+  action    String
+  actorRole ActorRole @map("actor_role")
+  notes     String?
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  tenant    Tenant    @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  booking   Booking   @relation(fields: [bookingId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, bookingId, createdAt])
+  @@map("booking_logs")
+}
+
+model ScheduleBlock {
+  id        String   @id @default(uuid()) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  unitId    String?  @map("unit_id") @db.Uuid
+  startAt   DateTime @map("start_at") @db.Timestamptz
+  endAt     DateTime @map("end_at") @db.Timestamptz
+  reason    String
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+  tenant    Tenant   @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  unit      Unit?    @relation(fields: [unitId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, startAt, endAt])
+  @@index([tenantId, unitId, startAt])
+  @@map("schedule_blocks")
+}
